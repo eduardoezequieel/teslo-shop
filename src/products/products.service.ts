@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { validate } from 'uuid';
+import { ProductImage } from './entities';
 
 @Injectable()
 export class ProductsService {
@@ -20,11 +21,22 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(ProductImage)
+    private readonly productImageRepository: Repository<ProductImage>,
   ) {}
   async create(createProductDto: CreateProductDto) {
     try {
-      const newProduct = this.productRepository.create(createProductDto);
-      return await this.productRepository.save(newProduct);
+      const { images, ...productProperties } = createProductDto;
+      const newProduct = this.productRepository.create({
+        ...productProperties,
+        images: images.map((image) =>
+          this.productImageRepository.create({ url: image }),
+        ),
+      });
+      return {
+        ...(await this.productRepository.save(newProduct)),
+        images,
+      };
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -33,10 +45,18 @@ export class ProductsService {
   async findAll(paginationDto: PaginationDto) {
     try {
       const { limit = 10, offset = 0 } = paginationDto;
-      return await this.productRepository.find({
+      const products = await this.productRepository.find({
         take: limit,
         skip: offset,
+        relations: {
+          images: true,
+        },
       });
+
+      return products.map((product) => ({
+        ...product,
+        images: product.images.map((image) => image.url),
+      }));
     } catch (error) {
       this.handleDBExceptions(error);
     }
@@ -71,6 +91,7 @@ export class ProductsService {
     const product = await this.productRepository.preload({
       id,
       ...updateProductDto,
+      images: [],
     });
 
     if (!product)
